@@ -1,249 +1,163 @@
-# Copyright 2016, 2023 John Rofrano. All Rights Reserved.
+
+######################################################################
+# Copyright 2016, 2021 John J. Rofrano. All Rights Reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the 'License');
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 # https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+######################################################################
 
+# pylint: disable=function-redefined, missing-function-docstring
+# flake8: noqa
 """
-Models for Product Demo Service
+Web Steps
 
-All of the models are stored in this module
+Steps file for web interactions with Selenium
 
-Models
-------
-Product - A Product used in the Product Store
-
-Attributes:
------------
-name (string) - the name of the product
-description (string) - the description the product belongs to (i.e., dog, cat)
-available (boolean) - True for products that are available for adoption
-
+For information on Waiting until elements are present in the HTML see:
+    https://selenium-python.readthedocs.io/waits.html
 """
 import logging
-from enum import Enum
-from decimal import Decimal
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
+from behave import when, then
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support import expected_conditions
 
-logger = logging.getLogger("flask.app")
-
-# Create the SQLAlchemy object to be initialized later in init_db()
-db = SQLAlchemy()
+ID_PREFIX = 'product_'
 
 
-def init_db(app):
-    """Initialize the SQLAlchemy app"""
-    Product.init_db(app)
+@when('I visit the "Home Page"')
+def step_impl(context):
+    """ Make a call to the base URL """
+    context.driver.get(context.base_url)
+    # Uncomment next line to take a screenshot of the web page
+    # context.driver.save_screenshot('home_page.png')
 
+@then('I should see "{message}" in the title')
+def step_impl(context, message):
+    """ Check the document title for a message """
+    assert(message in context.driver.title)
 
-class DataValidationError(Exception):
-    """Used for an data validation errors when deserializing"""
+@then('I should not see "{text_string}"')
+def step_impl(context, text_string):
+    element = context.driver.find_element(By.TAG_NAME, 'body')
+    assert(text_string not in element.text)
 
+@when('I set the "{element_name}" to "{text_string}"')
+def step_impl(context, element_name, text_string):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = context.driver.find_element(By.ID, element_id)
+    element.clear()
+    element.send_keys(text_string)
 
-class Category(Enum):
-    """Enumeration of valid Product Categories"""
+@when('I select "{text}" in the "{element_name}" dropdown')
+def step_impl(context, text, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = Select(context.driver.find_element(By.ID, element_id))
+    element.select_by_visible_text(text)
 
-    UNKNOWN = 0
-    CLOTHS = 1
-    FOOD = 2
-    HOUSEWARES = 3
-    AUTOMOTIVE = 4
-    TOOLS = 5
+@then('I should see "{text}" in the "{element_name}" dropdown')
+def step_impl(context, text, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = Select(context.driver.find_element(By.ID, element_id))
+    assert(element.first_selected_option.text == text)
 
+@then('the "{element_name}" field should be empty')
+def step_impl(context, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = context.driver.find_element(By.ID, element_id)
+    assert(element.get_attribute('value') == u'')
 
-class Product(db.Model):
-    """
-    Class that represents a Product
-
-    This version uses a relational database for persistence which is hidden
-    from us by SQLAlchemy's object relational mappings (ORM)
-    """
-
-    ##################################################
-    # Table Schema
-    ##################################################
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(250), nullable=False)
-    price = db.Column(db.Numeric, nullable=False)
-    available = db.Column(db.Boolean(), nullable=False, default=True)
-    category = db.Column(
-        db.Enum(Category), nullable=False, server_default=(Category.UNKNOWN.name)
+##################################################################
+# These two function simulate copy and paste
+##################################################################
+@when('I copy the "{element_name}" field')
+def step_impl(context, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.presence_of_element_located((By.ID, element_id))
     )
+    context.clipboard = element.get_attribute('value')
+    logging.info('Clipboard contains: %s', context.clipboard)
 
-    ##################################################
-    # INSTANCE METHODS
-    ##################################################
+@when('I paste the "{element_name}" field')
+def step_impl(context, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.presence_of_element_located((By.ID, element_id))
+    )
+    element.clear()
+    element.send_keys(context.clipboard)
 
-    def __repr__(self):
-        return f"<Product {self.name} id=[{self.id}]>"
+##################################################################
+# This code works because of the following naming convention:
+# The buttons have an id in the html hat is the button text
+# in lowercase followed by '-btn' so the Clean button has an id of
+# id='clear-btn'. That allows us to lowercase the name and add '-btn'
+# to get the element id of any button
+##################################################################
 
-    def create(self):
-        """
-        Creates a Product to the database
-        """
-        logger.info("Creating %s", self.name)
-        # id must be none to generate next primary key
-        self.id = None  # pylint: disable=invalid-name
-        db.session.add(self)
-        db.session.commit()
+@when('I press the "{button}" button')
+def step_impl(context, button):
+    button_id = button.lower() + '-btn'
+    context.driver.find_element_by_id(button_id).click()
 
-    def update(self):
-        """
-        Updates a Product to the database
-        """
-        logger.info("Saving %s", self.name)
-        if not self.id:
-            raise DataValidationError("Update called with empty ID field")
-        db.session.commit()
+@then('I should see "{name}" in the results')
+def step_impl(context, name):
+    found = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'search_results'),
+            name
+        )
+    )
+    assert(found)
 
-    def delete(self):
-        """Removes a Product from the data store"""
-        logger.info("Deleting %s", self.name)
-        db.session.delete(self)
-        db.session.commit()
+@then('I should not see "{name}" in the results')
+def step_impl(context, name):
+    element = context.driver.find_element_by_id('search_results')
+    assert(name not in element.text)
 
-    def serialize(self) -> dict:
-        """Serializes a Product into a dictionary"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "price": str(self.price),
-            "available": self.available,
-            "category": self.category.name  # convert enum to string
-        }
+@then('I should see the message "{message}"')
+def step_impl(context, message):
+    found = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'flash_message'),
+            message
+        )
+    )
+    assert(found)
 
-    def deserialize(self, data: dict):
-        """
-        Deserializes a Product from a dictionary
-        Args:
-            data (dict): A dictionary containing the Product data
-        """
-        try:
-            self.name = data["name"]
-            self.description = data["description"]
-            self.price = Decimal(data["price"])
-            if isinstance(data["available"], bool):
-                self.available = data["available"]
-            else:
-                raise DataValidationError(
-                    "Invalid type for boolean [available]: "
-                    + str(type(data["available"]))
-                )
-            self.category = getattr(Category, data["category"])  # create enum from string
-        except AttributeError as error:
-            raise DataValidationError("Invalid attribute: " + error.args[0]) from error
-        except KeyError as error:
-            raise DataValidationError("Invalid product: missing " + error.args[0]) from error
-        except TypeError as error:
-            raise DataValidationError(
-                "Invalid product: body of request contained bad or no data " + str(error)
-            ) from error
-        return self
+##################################################################
+# This code works because of the following naming convention:
+# The id field for text input in the html is the element name
+# prefixed by ID_PREFIX so the Name field has an id='pet_name'
+# We can then lowercase the name and prefix with pet_ to get the id
+##################################################################
 
-    ##################################################
-    # CLASS METHODS
-    ##################################################
+@then('I should see "{text_string}" in the "{element_name}" field')
+def step_impl(context, text_string, element_name):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    found = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element_value(
+            (By.ID, element_id),
+            text_string
+        )
+    )
+    assert(found)
 
-    @classmethod
-    def init_db(cls, app: Flask):
-        """Initializes the database session
-
-        :param app: the Flask app
-        :type data: Flask
-
-        """
-        logger.info("Initializing database")
-        # This is where we initialize SQLAlchemy from the Flask app
-        db.init_app(app)
-        app.app_context().push()
-        db.create_all()  # make our sqlalchemy tables
-
-    @classmethod
-    def all(cls) -> list:
-        """Returns all of the Products in the database"""
-        logger.info("Processing all Products")
-        return cls.query.all()
-
-    @classmethod
-    def find(cls, product_id: int):
-        """Finds a Product by it's ID
-
-        :param product_id: the id of the Product to find
-        :type product_id: int
-
-        :return: an instance with the product_id, or None if not found
-        :rtype: Product
-
-        """
-        logger.info("Processing lookup for id %s ...", product_id)
-        return cls.query.get(product_id)
-
-    @classmethod
-    def find_by_name(cls, name: str) -> list:
-        """Returns all Products with the given name
-
-        :param name: the name of the Products you want to match
-        :type name: str
-
-        :return: a collection of Products with that name
-        :rtype: list
-
-        """
-        logger.info("Processing name query for %s ...", name)
-        return cls.query.filter(cls.name == name)
-
-    @classmethod
-    def find_by_price(cls, price: Decimal) -> list:
-        """Returns all Products with the given price
-
-        :param price: the price to search for
-        :type name: float
-
-        :return: a collection of Products with that price
-        :rtype: list
-
-        """
-        logger.info("Processing price query for %s ...", price)
-        price_value = price
-        if isinstance(price, str):
-            price_value = Decimal(price.strip(' "'))
-        return cls.query.filter(cls.price == price_value)
-
-    @classmethod
-    def find_by_availability(cls, available: bool = True) -> list:
-        """Returns all Products by their availability
-
-        :param available: True for products that are available
-        :type available: str
-
-        :return: a collection of Products that are available
-        :rtype: list
-
-        """
-        logger.info("Processing available query for %s ...", available)
-        return cls.query.filter(cls.available == available)
-
-    @classmethod
-    def find_by_category(cls, category: Category = Category.UNKNOWN) -> list:
-        """Returns all Products by their Category
-
-        :param category: values are ['MALE', 'FEMALE', 'UNKNOWN']
-        :type available: enum
-
-        :return: a collection of Products that are available
-        :rtype: list
-
-        """
-        logger.info("Processing category query for %s ...", category.name)
-        return cls.query.filter(cls.category == category)
+@when('I change "{element_name}" to "{text_string}"')
+def step_impl(context, element_name, text_string):
+    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+    element = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.presence_of_element_located((By.ID, element_id))
+    )
+    element.clear()
+    element.send_keys(text_string)
